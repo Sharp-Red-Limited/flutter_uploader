@@ -14,10 +14,11 @@ import com.google.common.util.concurrent.ListenableFuture;
 import com.google.gson.Gson;
 import com.google.gson.JsonIOException;
 import com.google.gson.reflect.TypeToken;
+import io.flutter.FlutterInjector;
 import io.flutter.embedding.engine.FlutterEngine;
 import io.flutter.embedding.engine.dart.DartExecutor;
+import io.flutter.embedding.engine.loader.FlutterLoader;
 import io.flutter.view.FlutterCallbackInformation;
-import io.flutter.view.FlutterMain;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -29,7 +30,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import okhttp3.Call;
 import okhttp3.Headers;
@@ -72,13 +72,13 @@ public class UploadWorker extends ListenableWorker implements CountProgressListe
 
   public UploadWorker(@NonNull Context context, @NonNull WorkerParameters workerParams) {
     super(context, workerParams);
-
+    this.backgroundExecutor = UploadExecutorService.getExecutorService(context);
     this.context = context;
   }
 
   @Nullable private static FlutterEngine engine;
 
-  private Executor backgroundExecutor = Executors.newSingleThreadExecutor();
+  private Executor backgroundExecutor;
 
   @NonNull
   @Override
@@ -297,7 +297,8 @@ public class UploadWorker extends ListenableWorker implements CountProgressListe
 
         Log.d(
             TAG,
-            "IllegalStateException while building a outputData object. Replace response with on-disk reference.");
+            "IllegalStateException while building a outputData object. Replace response with"
+                + " on-disk reference.");
         builder.putString(EXTRA_RESPONSE, null);
 
         File responseFile = writeResponseToTemporaryFile(context, responseString);
@@ -354,11 +355,12 @@ public class UploadWorker extends ListenableWorker implements CountProgressListe
 
     if (callbackHandle != -1L && engine == null) {
       engine = new FlutterEngine(context);
-      FlutterMain.ensureInitializationComplete(context, null);
+      FlutterLoader flutterLoader = FlutterInjector.instance().flutterLoader();
+      flutterLoader.ensureInitializationComplete(context, null);
 
       FlutterCallbackInformation callbackInfo =
           FlutterCallbackInformation.lookupCallbackInformation(callbackHandle);
-      String dartBundlePath = FlutterMain.findAppBundlePath();
+      String dartBundlePath = flutterLoader.findAppBundlePath();
 
       engine
           .getDartExecutor()

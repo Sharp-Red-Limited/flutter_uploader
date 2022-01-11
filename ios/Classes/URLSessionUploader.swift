@@ -7,18 +7,23 @@
 
 import Foundation
 
+struct Keys {
+    static let backgroundSessionIdentifier = "chillisource.flutter_uploader.upload.background"
+    static let wifiBackgroundSessionIdentifier = "chillisource.flutter_uploader.upload.background.wifi"
+    fileprivate static let maximumConcurrentTask = "FUMaximumConnectionsPerHost"
+    fileprivate static let maximumConcurrentUploadOperation = "FUMaximumUploadOperation"
+
+    /// In seconds
+    fileprivate static let timeout = "FUTimeoutInSeconds"
+}
+
 class URLSessionUploader: NSObject {
-    public static let KEY_BACKGROUND_SESSION_IDENTIFIER = "chillisource.flutter_uploader.upload.background"
-
-    fileprivate static let KEY_MAXIMUM_CONCURRENT_TASK = "FUMaximumConnectionsPerHost"
-    fileprivate static let KEY_MAXIMUM_CONCURRENT_UPLOAD_OPERATION = "FUMaximumUploadOperation"
-    fileprivate static let KEY_TIMEOUT_IN_SECOND = "FUTimeoutInSeconds"
-
     static let shared = URLSessionUploader()
 
     var session: URLSession?
+    var wifiSession: URLSession?
     let queue = OperationQueue()
-    
+
     // Accessing uploadedData & runningTaskById will require exclusive access
     private let semaphore = DispatchSemaphore(value: 1)
 
@@ -30,7 +35,8 @@ class URLSessionUploader: NSObject {
 
     private var delegates: [UploaderDelegate] = []
 
-    /// See the discussion on [application:handleEventsForBackgroundURLSession:completionHandler:](https://developer.apple.com/documentation/uikit/uiapplicationdelegate/1622941-application?language=objc)
+    /// See the discussion on
+    /// [application:handleEventsForBackgroundURLSession:completionHandler:](https://developer.apple.com/documentation/uikit/uiapplicationdelegate/1622941-application?language=objc)
     public var backgroundTransferCompletionHander: (() -> Void)?
 
     // MARK: Public API
@@ -39,22 +45,27 @@ class URLSessionUploader: NSObject {
         delegates.append(delegate)
     }
 
-    func enqueueUploadTask(_ request: URLRequest, path: String) -> URLSessionUploadTask? {
-        guard let session = self.session else {
+    func enqueueUploadTask(_ request: URLRequest, path: String, wifiOnly: Bool) -> URLSessionUploadTask? {
+        guard let session = self.session,
+              let wifiSession = self.wifiSession else {
             return nil
         }
 
-        let uploadTask = session.uploadTask(with: request as URLRequest, fromFile: URL(fileURLWithPath: path))
+        let activeSession = wifiOnly ? wifiSession : session
+        let uploadTask = activeSession.uploadTask(
+                with: request as URLRequest,
+                fromFile: URL(fileURLWithPath: path)
+        )
 
         // Create a random UUID as task description (& ID).
         uploadTask.taskDescription = UUID().uuidString
 
         let taskId = identifierForTask(uploadTask)
-        
+
         delegates.uploadEnqueued(taskId: taskId)
 
         uploadTask.resume()
-        
+
         semaphore.wait()
         self.runningTaskById[taskId] = UploadTask(taskId: taskId, status: .enqueue, progress: 0)
         semaphore.signal()
@@ -115,46 +126,60 @@ class URLSessionUploader: NSObject {
 
         let mainBundle = Bundle.main
         var maxConcurrentTasks: NSNumber
-        if let concurrentTasks = mainBundle.object(forInfoDictionaryKey: URLSessionUploader.KEY_MAXIMUM_CONCURRENT_TASK) {
-            maxConcurrentTasks = concurrentTasks as! NSNumber
+        if let concurrentTasks = mainBundle.object(forInfoDictionaryKey: Keys.maximumConcurrentTask) as? NSNumber {
+            maxConcurrentTasks = concurrentTasks
         } else {
-            maxConcurrentTasks = NSNumber(integerLiteral: 3)
+            maxConcurrentTasks = NSNumber(value: 3)
         }
 
         NSLog("MAXIMUM_CONCURRENT_TASKS = \(maxConcurrentTasks)")
 
         var maxUploadOperation: NSNumber
-        if let operationTask = mainBundle.object(forInfoDictionaryKey: URLSessionUploader.KEY_MAXIMUM_CONCURRENT_UPLOAD_OPERATION) {
-            maxUploadOperation = operationTask as! NSNumber
+        if let operationTask = mainBundle.object(forInfoDictionaryKey: Keys.maximumConcurrentUploadOperation) as? NSNumber {
+            maxUploadOperation = operationTask
         } else {
-            maxUploadOperation = NSNumber(integerLiteral: 2)
+            maxUploadOperation = NSNumber(value: 2)
         }
 
         NSLog("MAXIMUM_CONCURRENT_UPLOAD_OPERATION = \(maxUploadOperation)")
 
         self.queue.maxConcurrentOperationCount = maxUploadOperation.intValue
 
-        let sessionConfiguration = URLSessionConfiguration.background(withIdentifier: URLSessionUploader.KEY_BACKGROUND_SESSION_IDENTIFIER)
+        // configure session for wifi only uploads
+        let wifiConfiguration = URLSessionConfiguration.background(withIdentifier: Keys.wifiBackgroundSessionIdentifier)
+        wifiConfiguration.httpMaximumConnectionsPerHost = maxConcurrentTasks.intValue
+        wifiConfiguration.timeoutIntervalForRequest = URLSessionUploader.determineTimeout()
+        wifiConfiguration.allowsCellularAccess = false
+        self.wifiSession = URLSession(configuration: wifiConfiguration, delegate: self, delegateQueue: queue)
+
+        // configure regular session
+        let sessionConfiguration = URLSessionConfiguration.background(withIdentifier: Keys.backgroundSessionIdentifier)
         sessionConfiguration.httpMaximumConnectionsPerHost = maxConcurrentTasks.intValue
         sessionConfiguration.timeoutIntervalForRequest = URLSessionUploader.determineTimeout()
         self.session = URLSession(configuration: sessionConfiguration, delegate: self, delegateQueue: queue)
     }
 
     private static func determineTimeout() -> Double {
-        if let timeoutSetting = Bundle.main.object(forInfoDictionaryKey: URLSessionUploader.KEY_TIMEOUT_IN_SECOND) {
-            return (timeoutSetting as! NSNumber).doubleValue
+        if let timeoutSetting = Bundle.main.object(forInfoDictionaryKey: Keys.timeout) as? NSNumber {
+            return timeoutSetting.doubleValue
         } else {
-            return SwiftFlutterUploaderPlugin.DEFAULT_TIMEOUT
+            return SwiftFlutterUploaderPlugin.defaultTimeout
         }
     }
 }
 
 extension URLSessionUploader: URLSessionDelegate, URLSessionDataDelegate, URLSessionTaskDelegate {
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
+    func urlSession(_ session: URLSession,
+                    dataTask: URLSessionDataTask,
+                    didReceive response: URLResponse,
+                    completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         completionHandler(.allow)
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+    func urlSession(_ session: URLSession,
+                    task: URLSessionTask,
+                    didReceive challenge: URLAuthenticationChallenge,
+                    completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
         completionHandler(.performDefaultHandling, nil)
     }
 
@@ -204,21 +229,20 @@ extension URLSessionUploader: URLSessionDelegate, URLSessionDataDelegate, URLSes
             }
 
             let taskId = identifierForTask(uploadTask)
-            let bytesExpectedToSend = Double(integerLiteral: totalBytesExpectedToSend)
-            let tBytesSent = Double(integerLiteral: totalBytesSent)
+            let bytesExpectedToSend = Double(totalBytesExpectedToSend)
+            let tBytesSent = Double(totalBytesSent)
             let progress = round(Double(tBytesSent / bytesExpectedToSend * 100))
-            
+
             let runningTask = self.runningTaskById[taskId]
-            NSLog("URLSessionDidSendBodyData: taskId: \(taskId), byteSent: \(bytesSent), totalBytesSent: \(totalBytesSent), totalBytesExpectedToSend: \(totalBytesExpectedToSend), progress:\(progress)")
+            NSLog("URLSessionDidSendBodyData: \(taskId), byteSent: \(bytesSent), totalBytesSent: \(totalBytesSent), totalBytesExpectedToSend: \(totalBytesExpectedToSend), progress:\(progress)")
 
             if runningTask != nil {
-                let isRunning: (Int, Int, Int) -> Bool = {
-                    (current, previous, step) in
+                let isRunning: (Int, Int, Int) -> Bool = { (current, previous, step) in
                     let prev = previous + step
                     return (current == 0 || current > prev || current >= 100) &&  current != previous
                 }
 
-                if isRunning(Int(progress), runningTask!.progress, SwiftFlutterUploaderPlugin.STEP_UPDATE) {
+                if isRunning(Int(progress), runningTask!.progress, SwiftFlutterUploaderPlugin.stepUpdate) {
                     self.delegates.uploadProgressed(taskId: taskId, inStatus: .running, progress: Int(progress))
                     self.runningTaskById[taskId] = UploadTask(taskId: taskId, status: .running, progress: Int(progress), tag: runningTask?.tag)
                 }
@@ -228,13 +252,13 @@ extension URLSessionUploader: URLSessionDelegate, URLSessionDataDelegate, URLSes
 
     public func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {
         NSLog("URLSessionDidFinishEvents:")
-        
+
         session.getTasksWithCompletionHandler { (_, uploadTasks, _) in
             self.semaphore.wait()
             defer {
                 self.semaphore.signal()
             }
-            
+
             if uploadTasks.isEmpty {
                 NSLog("all upload tasks have been completed")
 
@@ -249,7 +273,7 @@ extension URLSessionUploader: URLSessionDelegate, URLSessionDataDelegate, URLSes
         defer {
             semaphore.signal()
         }
-        
+
         guard let uploadTask = task as? URLSessionUploadTask else {
             NSLog("URLSessionDidCompleteWithError: not an uplaod task")
             return
@@ -267,7 +291,13 @@ extension URLSessionUploader: URLSessionDelegate, URLSessionDataDelegate, URLSes
                 uploadStatus = .failed
             }
 
-            self.delegates.uploadFailed(taskId: taskId, inStatus: uploadStatus, statusCode: 500, errorCode: "upload_error", errorMessage: error?.localizedDescription ?? "", errorStackTrace: Thread.callStackSymbols)
+            self.delegates.uploadFailed(taskId: taskId,
+                                        inStatus: uploadStatus,
+                                        statusCode: 500,
+                                        errorCode: "upload_error",
+                                        errorMessage: error?.localizedDescription ?? "",
+                                        errorStackTrace: Thread.callStackSymbols)
+
             self.runningTaskById.removeValue(forKey: taskId)
             self.uploadedData.removeValue(forKey: taskId)
             return
@@ -293,8 +323,8 @@ extension URLSessionUploader: URLSessionDelegate, URLSessionDataDelegate, URLSes
         var responseHeaders = [String: Any]()
         if headers != nil {
             headers!.forEach { (key, value) in
-                if let k = key as? String {
-                    responseHeaders[k] = value
+                if let key = key as? String {
+                    responseHeaders[key] = value
                 }
             }
         }
@@ -306,15 +336,23 @@ extension URLSessionUploader: URLSessionDelegate, URLSessionDataDelegate, URLSes
             message = nil
         }
 
+        let statusText = uploadTask.state.statusText()
         if error == nil && !hasResponseError {
-            NSLog("URLSessionDidCompleteWithError: response: \(message ?? "null"), task: \(uploadTask.state.statusText())")
+            NSLog("URLSessionDidCompleteWithError: response: \(message ?? "null"), task: \(statusText)")
             self.delegates.uploadCompleted(taskId: taskId, message: message, statusCode: response?.statusCode ?? 200, headers: responseHeaders)
         } else if hasResponseError {
-            NSLog("URLSessionDidCompleteWithError: task: \(uploadTask.state.statusText()) statusCode: \(response?.statusCode ?? -1), error:\(message ?? "null"), response:\(String(describing: response))")
+            NSLog("URLSessionDidCompleteWithError: task: \(statusText) statusCode: \(response?.statusCode ?? -1), error:\(message ?? "null"), response:\(String(describing: response))")
             self.delegates.uploadFailed(taskId: taskId, inStatus: .failed, statusCode: statusCode, errorCode: "upload_error", errorMessage: message, errorStackTrace: Thread.callStackSymbols)
         } else {
-            NSLog("URLSessionDidCompleteWithError: task: \(uploadTask.state.statusText()) statusCode: \(response?.statusCode ?? -1), error:\(error?.localizedDescription ?? "none")")
-            delegates.uploadFailed(taskId: taskId, inStatus: .failed, statusCode: statusCode, errorCode: "upload_error", errorMessage: error?.localizedDescription ?? "", errorStackTrace: Thread.callStackSymbols)
+            NSLog("URLSessionDidCompleteWithError: task: \(statusText) statusCode: \(response?.statusCode ?? -1), error:\(error?.localizedDescription ?? "none")")
+            delegates.uploadFailed(
+                taskId: taskId,
+                inStatus: .failed,
+                statusCode: statusCode,
+                errorCode: "upload_error",
+                errorMessage: error?.localizedDescription ?? "",
+                errorStackTrace: Thread.callStackSymbols
+            )
         }
 
         self.uploadedData.removeValue(forKey: taskId)

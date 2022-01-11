@@ -1,3 +1,13 @@
+## 3.0.0-beta.3
+
+- Add flag to restrict uploads to wifi only (#188)
+- Fix ClassCastException on Android (#196)
+- Do not persist nil values in result database (#190)
+
+## 3.0.0-beta.2
+
+- Android: Restore concurrency setting for uploads (#174).
+
 ## 3.0.0-beta.1
 
 - Migrate to nullsafety
