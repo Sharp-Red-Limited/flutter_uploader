@@ -73,6 +73,8 @@ public class SwiftFlutterUploaderPlugin: NSObject, FlutterPlugin {
             result(nil)
         case "enqueue":
             enqueueMethodCall(call, result)
+        case "enqueueJson":
+            enqueueJsonMethodCall(call, result)
         case "enqueueBinary":
             enqueueBinaryMethodCall(call, result)
         case "cancel":
@@ -91,6 +93,53 @@ public class SwiftFlutterUploaderPlugin: NSObject, FlutterPlugin {
 
         result(nil)
     }
+    
+    private func enqueueJsonMethodCall(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+        guard let args = call.arguments as? [String: Any?],
+              let urlString = args["url"] as? String,
+              let method = args["method"] as? String else {
+
+            result(FlutterError(code: "invalid_parameters", message: "Invalid parameters passed", details: nil))
+            return
+        }
+
+        let headers = args["headers"] as? [String: Any?]
+        let tag = args["tag"] as? String
+        let data = args["data"] as? [String: Any?]
+
+        let httpMethod = method.uppercased()
+
+        if !validHttpMethods.contains(httpMethod) {
+            result(FlutterError(code: "invalid_method", message: "Method must be either POST | PUT | PATCH", details: nil))
+            return
+        }
+
+        guard let url = URL(string: urlString) else {
+            result(FlutterError(code: "invalid_url", message: "url is not a valid url", details: nil))
+            return
+        }
+
+        guard let allowCellular = args["allowCellular"] as? Bool else {
+            result(FlutterError(code: "invalid_flag", message: "allowCellular must be set", details: nil))
+            return
+        }
+
+        uploadJsonTaskWithURLWithCompletion(
+            url: url,
+            method: method,
+            headers: headers,
+            parameters: data,
+            tag: tag,
+            allowCellular: allowCellular,
+            completion: { (task, error) in
+                if error != nil {
+                    result(error!)
+                } else if let uploadTask = task {
+                    result(self.urlSessionUploader.identifierForTask(uploadTask))
+                }
+            })
+    }
+
 
     private func enqueueMethodCall(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
         guard let args = call.arguments as? [String: Any?],
@@ -227,6 +276,53 @@ public class SwiftFlutterUploaderPlugin: NSObject, FlutterPlugin {
         }
 
         completionHandler(self.urlSessionUploader.enqueueUploadTask(request as URLRequest, path: file.path, wifiOnly: !allowCellular), nil)
+    }
+    
+    private func uploadJsonTaskWithURLWithCompletion(
+        url: URL,
+        method: String,
+        headers: [String: Any?]?,
+        parameters data: [String: Any?]?,
+        tag: String?,
+        allowCellular: Bool,
+        completion completionHandler:@escaping (URLSessionUploadTask?, FlutterError?) -> Void) {
+        let fileManager = FileManager.default
+        let formData = MultipartFormData()
+        let tempDirectory = NSURL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+
+        if data != nil {
+            data?.forEach({ (key, value) in
+                if let value = value as? String {
+                    formData.append(value.data(using: .utf8)!, withName: key)
+                }
+            })
+        }
+
+        let requestId = UUID().uuidString.replacingOccurrences(of: "-", with: "_")
+        let requestFile = "\(requestId).req"
+        let tempPath = tempDirectory.appendingPathComponent(requestFile, isDirectory: false)
+
+        if fileManager.fileExists(atPath: tempPath!.path) {
+            do {
+                try fileManager.removeItem(at: tempPath!)
+            } catch {
+                completionHandler(nil, FlutterError(code: "io_error", message: "failed to delete file \(requestFile)", details: nil))
+                return
+            }
+        }
+
+        let path = tempPath!.path
+        do {
+            let requestfileURL = URL(fileURLWithPath: path)
+            try formData.writeEncodedData(to: requestfileURL)
+        } catch {
+            completionHandler(nil, FlutterError(code: "io_error", message: "failed to write request \(requestFile)", details: nil))
+            return
+        }
+
+        self.makeRequest(path, url, method, headers, formData.contentType, formData.contentLength, allowCellular: allowCellular, completion: { (task, error) in
+            completionHandler(task, error)
+        })
     }
 
     private func uploadTaskWithURLWithCompletion(
