@@ -7,11 +7,11 @@
 	<key>AD_UNIT_ID_FOR_INTERSTITIAL_TEST</key>
 	<string>ca-app-pub-3940256099942544/4411468910</string>
 	<key>CLIENT_ID</key>
-	<string>475199574117-ju3u7efhlbgq3ges9a4u8s37pdcba78i.apps.googleusercontent.com</string>
+	<string>OAUTHIDHERE</string>
 	<key>REVERSED_CLIENT_ID</key>
 	<string>com.googleusercontent.apps.475199574117-ju3u7efhlbgq3ges9a4u8s37pdcba78i</string>
 	<key>API_KEY</key>
-	<string>AIzaSyAUQQgluEf9xsCY_Bn_1T5jon0zlFIJjqs</string>
+	<string>API_KEY_HERE</string>
 	<key>GCM_SENDER_ID</key>
 	<string>475199574117</string>
 	<key>PLIST_VERSION</key>
