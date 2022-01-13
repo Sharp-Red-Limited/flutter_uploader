@@ -11,7 +11,7 @@ class UploadItemView extends StatelessWidget {
   final UploadItem item;
   final CancelUploadCallback onCancel;
 
-  UploadItemView({
+  const UploadItemView({
     Key? key,
     required this.item,
     required this.onCancel,

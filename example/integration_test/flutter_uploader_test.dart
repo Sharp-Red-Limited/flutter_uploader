@@ -23,7 +23,7 @@ void main() {
   });
 
   tearDownAll(() {
-    for (var path in tempFilePaths) {
+    for (final String path in tempFilePaths) {
       try {
         File(path).deleteSync();
       } catch (e) {
