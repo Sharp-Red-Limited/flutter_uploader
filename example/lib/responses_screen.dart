@@ -9,7 +9,7 @@ import 'package:flutter_uploader_example/upload_item_view.dart';
 
 /// Shows the statusresponses for previous uploads.
 class ResponsesScreen extends StatefulWidget {
-  ResponsesScreen({
+  const ResponsesScreen({
     Key? key,
     required this.uploader,
   }) : super(key: key);
