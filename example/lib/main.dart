@@ -11,7 +11,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 const String title = 'FileUpload Sample app';
 final Uri uploadURL = Uri.parse(
-  'https://us-central1-flutteruploadertest.cloudfunctions.net/upload',
+  'https://mbp.sharpred.dev/',
 );
 
 FlutterUploader _uploader = FlutterUploader();
@@ -108,7 +108,7 @@ void backgroundHandler() {
 void main() => runApp(App());
 
 class App extends StatefulWidget {
-  App({Key? key}) : super(key: key);
+  const App({Key? key}) : super(key: key);
 
   @override
   _AppState createState() => _AppState();

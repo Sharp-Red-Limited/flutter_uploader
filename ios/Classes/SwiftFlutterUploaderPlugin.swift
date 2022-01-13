@@ -287,17 +287,15 @@ public class SwiftFlutterUploaderPlugin: NSObject, FlutterPlugin {
         allowCellular: Bool,
         completion completionHandler:@escaping (URLSessionUploadTask?, FlutterError?) -> Void) {
         let fileManager = FileManager.default
-        let formData = MultipartFormData()
+        
+        var obj: [String: Any] = [String: Any]()
+        
+        data?.forEach{
+                obj[$0.key] = $0.value
+            }
+        
+        let formData = try? JSONSerialization.data(withJSONObject: obj)
         let tempDirectory = NSURL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-
-        if data != nil {
-            data?.forEach({ (key, value) in
-                if let value = value as? String {
-                    formData.append(value.data(using: .utf8)!, withName: key)
-                }
-            })
-        }
-
         let requestId = UUID().uuidString.replacingOccurrences(of: "-", with: "_")
         let requestFile = "\(requestId).req"
         let tempPath = tempDirectory.appendingPathComponent(requestFile, isDirectory: false)
@@ -312,15 +310,18 @@ public class SwiftFlutterUploaderPlugin: NSObject, FlutterPlugin {
         }
 
         let path = tempPath!.path
+        var contentLength:UInt64 = 0
         do {
             let requestfileURL = URL(fileURLWithPath: path)
-            try formData.writeEncodedData(to: requestfileURL)
+            try formData?.write(to: requestfileURL)
+            let str = String(data: formData!, encoding: .utf8)
+            contentLength = UInt64(str!.count)
         } catch {
             completionHandler(nil, FlutterError(code: "io_error", message: "failed to write request \(requestFile)", details: nil))
             return
         }
 
-        self.makeRequest(path, url, method, headers, formData.contentType, formData.contentLength, allowCellular: allowCellular, completion: { (task, error) in
+        self.makeRequest(path, url, method, headers, "application/json; charset=utf-8", contentLength, allowCellular: allowCellular, completion: { (task, error) in
             completionHandler(task, error)
         })
     }

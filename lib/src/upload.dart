@@ -1,3 +1,5 @@
+// ignore_for_file: public_member_api_docs
+
 part of flutter_uploader;
 
 /// Abstract data structure for storing uploads.
@@ -81,4 +83,22 @@ class RawUpload extends Upload {
 
   /// single file to upload
   final String? path;
+}
+
+class JsonUpload extends Upload {
+  final Map<String, dynamic> data;
+  const JsonUpload({
+    required this.data,
+    required String url,
+    UploadMethod method = UploadMethod.POST,
+    Map<String, String>? headers,
+    String? tag,
+    bool allowCellular = true,
+  }) : super(
+          url: url,
+          method: method,
+          headers: headers,
+          tag: tag,
+          allowCellular: allowCellular,
+        );
 }

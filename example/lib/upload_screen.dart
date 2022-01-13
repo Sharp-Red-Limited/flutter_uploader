@@ -1,4 +1,4 @@
-// ignore_for_file: public_member_api_docs
+// ignore_for_file: public_member_api_docs, prefer_single_quotes
 
 import 'dart:async';
 import 'dart:io';
@@ -6,7 +6,8 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_uploader/flutter_uploader.dart';
-import 'package:flutter_uploader_example/server_behavior.dart';
+import 'package:flutter_uploader_example/enum.dart';
+import 'package:flutter_uploader_example/test.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -29,8 +30,6 @@ class UploadScreen extends StatefulWidget {
 class _UploadScreenState extends State<UploadScreen> {
   ImagePicker imagePicker = ImagePicker();
 
-  ServerBehavior _serverBehavior = ServerBehavior.defaultOk200;
-
   @override
   void initState() {
     super.initState();
@@ -42,10 +41,10 @@ class _UploadScreenState extends State<UploadScreen> {
         }
 
         if (lostData.type == RetrieveType.image) {
-          _handleFileUpload([lostData.file!.path]);
+          _handleUpload(paths: [lostData.file!.path], type: UploadType.Binary);
         }
         if (lostData.type == RetrieveType.video) {
-          _handleFileUpload([lostData.file!.path]);
+          _handleUpload(paths: [lostData.file!.path], type: UploadType.Binary);
         }
       });
     }
@@ -64,25 +63,6 @@ class _UploadScreenState extends State<UploadScreen> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: <Widget>[
-                Text(
-                  'Configure test Server Behavior',
-                  style: Theme.of(context).textTheme.subtitle1,
-                ),
-                DropdownButton<ServerBehavior>(
-                  items: ServerBehavior.all.map((e) {
-                    return DropdownMenuItem(
-                      value: e,
-                      child: Text('${e.title}'),
-                    );
-                  }).toList(),
-                  onChanged: (newBehavior) {
-                    if (newBehavior != null) {
-                      setState(() => _serverBehavior = newBehavior);
-                    }
-                  },
-                  value: _serverBehavior,
-                ),
-                Divider(),
                 Text(
                   'multipart/form-data uploads',
                   style: Theme.of(context).textTheme.subtitle1,
@@ -130,6 +110,22 @@ class _UploadScreenState extends State<UploadScreen> {
                   ],
                 ),
                 Divider(height: 40),
+                Text(
+                  'json uploads',
+                  style: Theme.of(context).textTheme.subtitle1,
+                ),
+                Text('this will upload JSON'),
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 10,
+                  children: <Widget>[
+                    ElevatedButton(
+                      onPressed: () => getJson(binary: false),
+                      child: Text('upload json'),
+                    ),
+                  ],
+                ),
+                Divider(height: 40),
                 Text('Cancellation'),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -160,10 +156,20 @@ class _UploadScreenState extends State<UploadScreen> {
     await prefs.setBool('binary', binary);
 
     var image = await imagePicker.getImage(source: ImageSource.gallery);
-
+    UploadType type = binary ? UploadType.Binary : UploadType.Multipart;
     if (image != null) {
-      _handleFileUpload([image.path]);
+      _handleUpload(paths: [image.path], type: type);
     }
+  }
+
+  Future getJson({required bool binary}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('binary', binary);
+    UploadType type = binary ? UploadType.Binary : UploadType.Multipart;
+    _handleUpload(
+      map: testMap,
+      type: type,
+    );
   }
 
   Future getVideo({required bool binary}) async {
@@ -171,9 +177,9 @@ class _UploadScreenState extends State<UploadScreen> {
     await prefs.setBool('binary', binary);
 
     var video = await imagePicker.getVideo(source: ImageSource.gallery);
-
+    UploadType type = binary ? UploadType.Binary : UploadType.Multipart;
     if (video != null) {
-      _handleFileUpload([video.path]);
+      _handleUpload(paths: [video.path], type: type);
     }
   }
 
@@ -187,58 +193,73 @@ class _UploadScreenState extends State<UploadScreen> {
     );
     if (files != null && files.count > 0) {
       if (binary) {
-        for (var file in files.files) {
-          _handleFileUpload([file.path]);
+        for (final PlatformFile file in files.files) {
+          _handleUpload(paths: [file.path], type: UploadType.Binary);
         }
       } else {
-        _handleFileUpload(files.paths);
+        _handleUpload(paths: files.paths, type: UploadType.Multipart);
       }
     }
   }
 
-  void _handleFileUpload(List<String?> paths) async {
+  void _handleUpload(
+      {List<String?> paths = const [],
+      Map<String, dynamic> map = const {},
+      required UploadType type}) async {
     final prefs = await SharedPreferences.getInstance();
     final binary = prefs.getBool('binary') ?? false;
     final allowCellular = prefs.getBool('allowCellular') ?? true;
-
+    UploadType type = binary ? UploadType.Binary : UploadType.Multipart;
+    if (map.isNotEmpty && paths.isEmpty) {
+      type = UploadType.JSON;
+    }
     await widget.uploader.enqueue(_buildUpload(
-      binary,
-      paths.whereType<String>().toList(),
-      allowCellular,
-    ));
+        paths: paths.whereType<String>().toList(),
+        allowCellular: allowCellular,
+        map: map,
+        type: type));
 
     widget.onUploadStarted();
   }
 
-  Upload _buildUpload(bool binary, List<String> paths,
-      [bool allowCellular = true]) {
+  Upload _buildUpload({
+    List<String> paths = const [],
+    bool allowCellular = true,
+    Map<String, dynamic> map = const {},
+    required UploadType type,
+  }) {
     final tag = 'upload';
-
-    var url = binary
-        ? widget.uploadURL.replace(path: widget.uploadURL.path + 'Binary')
-        : widget.uploadURL;
-
-    url = url.replace(queryParameters: {
-      'simulate': _serverBehavior.name,
-    });
-
-    if (binary) {
-      return RawUpload(
-        url: url.toString(),
-        path: paths.first,
-        method: UploadMethod.POST,
-        tag: tag,
-        allowCellular: allowCellular,
-      );
-    } else {
-      return MultipartFormDataUpload(
-        url: url.toString(),
-        data: {'name': 'john'},
-        files: paths.map((e) => FileItem(path: e, field: 'file')).toList(),
-        method: UploadMethod.POST,
-        tag: tag,
-        allowCellular: allowCellular,
-      );
+    var url;
+    switch (type) {
+      case UploadType.Binary:
+        url = Uri.https(widget.uploadURL.authority, "uploadFile");
+        return RawUpload(
+          url: url.toString(),
+          path: paths.first,
+          method: UploadMethod.POST,
+          tag: tag,
+          allowCellular: allowCellular,
+        );
+      case UploadType.Multipart:
+        url = Uri.https(widget.uploadURL.authority, "uploadFile");
+        return MultipartFormDataUpload(
+          url: url.toString(),
+          data: {'name': 'john'},
+          files: paths.map((e) => FileItem(path: e, field: 'file')).toList(),
+          method: UploadMethod.POST,
+          tag: tag,
+          allowCellular: allowCellular,
+        );
+      case UploadType.JSON:
+        url = Uri.https(widget.uploadURL.authority, "uploadJson");
+        print("json url: $url");
+        return JsonUpload(
+          data: map,
+          url: url.toString(),
+          method: UploadMethod.POST,
+          tag: tag,
+          allowCellular: allowCellular,
+        );
     }
   }
 }

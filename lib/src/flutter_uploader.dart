@@ -121,6 +121,17 @@ class FlutterUploader {
       }))!;
     }
 
+    if (upload is JsonUpload) {
+      return (await _platform.invokeMethod<String>('enqueueJson', {
+        'url': upload.url,
+        'method': describeEnum(upload.method),
+        'headers': upload.headers,
+        'data': upload.data,
+        'tag': upload.tag,
+        'allowCellular': upload.allowCellular,
+      }))!;
+    }
+
     throw 'Invalid upload type';
   }
 
