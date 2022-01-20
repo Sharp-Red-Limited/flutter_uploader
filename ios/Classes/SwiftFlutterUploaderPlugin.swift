@@ -74,7 +74,9 @@ public class SwiftFlutterUploaderPlugin: NSObject, FlutterPlugin {
         case "enqueue":
             enqueueMethodCall(call, result)
         case "enqueueJson":
-            enqueueJsonMethodCall(call, result)
+            enqueueDataMethodCall(call, result, false)
+        case "enqueueForm":
+            enqueueDataMethodCall(call, result, true)
         case "enqueueBinary":
             enqueueBinaryMethodCall(call, result)
         case "cancel":
@@ -94,7 +96,7 @@ public class SwiftFlutterUploaderPlugin: NSObject, FlutterPlugin {
         result(nil)
     }
     
-    private func enqueueJsonMethodCall(_ call: FlutterMethodCall, _ result: @escaping FlutterResult) {
+    private func enqueueDataMethodCall(_ call: FlutterMethodCall, _ result: @escaping FlutterResult, _ useForm: Bool) {
         guard let args = call.arguments as? [String: Any?],
               let urlString = args["url"] as? String,
               let method = args["method"] as? String else {
@@ -124,11 +126,12 @@ public class SwiftFlutterUploaderPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        uploadJsonTaskWithURLWithCompletion(
+        uploadDataTaskWithURLWithCompletion(
             url: url,
             method: method,
             headers: headers,
             parameters: data,
+            useForm: useForm,
             tag: tag,
             allowCellular: allowCellular,
             completion: { (task, error) in
@@ -278,23 +281,32 @@ public class SwiftFlutterUploaderPlugin: NSObject, FlutterPlugin {
         completionHandler(self.urlSessionUploader.enqueueUploadTask(request as URLRequest, path: file.path, wifiOnly: !allowCellular), nil)
     }
     
-    private func uploadJsonTaskWithURLWithCompletion(
+    private func uploadDataTaskWithURLWithCompletion(
         url: URL,
         method: String,
         headers: [String: Any?]?,
         parameters data: [String: Any?]?,
+        useForm: Bool,
         tag: String?,
         allowCellular: Bool,
         completion completionHandler:@escaping (URLSessionUploadTask?, FlutterError?) -> Void) {
         let fileManager = FileManager.default
-        
-        var obj: [String: Any] = [String: Any]()
-        
-        data?.forEach{
-                obj[$0.key] = $0.value
+            
+        let contentType = (useForm == true) ? "application/x-www-form-urlencoded" : "application/json"
+            //TODO figure out how to pass form data to makerequest
+            if useForm == true {
+                
+            } else {
+              
+                
             }
-        
-        let formData = try? JSONSerialization.data(withJSONObject: obj)
+            var obj: [String: Any] = [String: Any]()
+            
+            data?.forEach{
+                    obj[$0.key] = $0.value
+                }
+            
+            let formData = try? JSONSerialization.data(withJSONObject: obj)
         let tempDirectory = NSURL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         let requestId = UUID().uuidString.replacingOccurrences(of: "-", with: "_")
         let requestFile = "\(requestId).req"
@@ -321,7 +333,7 @@ public class SwiftFlutterUploaderPlugin: NSObject, FlutterPlugin {
             return
         }
 
-        self.makeRequest(path, url, method, headers, "application/json; charset=utf-8", contentLength, allowCellular: allowCellular, completion: { (task, error) in
+        self.makeRequest(path, url, method, headers, contentType, contentLength, allowCellular: allowCellular, completion: { (task, error) in
             completionHandler(task, error)
         })
     }
